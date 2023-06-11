@@ -11,7 +11,7 @@ set (
   cmasolutions.cc
   cmastrategy.cc
   errstats.cc
-  ipopcmastrategy.cc)
+  ipopcmastrategy.cc ../include/simulator/NeuralNetwork.h ../include/simulator/Palette.h ../include/simulator/Generator.h ../examples/board-learning.cpp)
 
 set(header_path "${PROJECT_SOURCE_DIR}/include/libcmaes")
 set (LIBCMAES_HEADERS
