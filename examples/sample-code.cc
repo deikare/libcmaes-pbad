@@ -90,7 +90,7 @@ int main() {
 
     FitFunc fContainer = [minLength, maxLength, minCount, maxCount, itemsTypeCount, difficulty, nodesInLayersCount, levelsAmount, experimentsAmount](const double *x, const int N) {
         auto weights = getWeightsMatrix(nodesInLayersCount, x);
-        std::vector<double> results{};
+        double mean = 0.0;
         for (int i = 0; i < experimentsAmount; ++i) {
             Generator generator(minLength, maxLength, minCount, maxCount, itemsTypeCount, difficulty);
             generator.generate();
@@ -99,11 +99,8 @@ int main() {
 
             Palette palette(paletteSize.first, paletteSize.second, itemTypes, weights, levelsAmount);
 
-            results.emplace_back(palette.performSimulation());
+            mean += palette.performSimulation();
         }
-        double mean = 0.0;
-        for (auto result : results)
-            mean += result;
         double feval = mean / double(experimentsAmount);
 
         std::cout << "Feval: " << feval<< std::endl;
@@ -113,6 +110,7 @@ int main() {
     CMAParameters<> cmaparams(x0, sigma);
     cmaparams.set_mt_feval(true);
     cmaparams.set_maximize(true);
+    cmaparams.set_ftarget(-0.9); //stupid, because it should be 0.9 in maximize
 
     //cmaparams._algo = BIPOP_CMAES;
     CMASolutions cmasols = cmaes<>(fContainer, cmaparams);
