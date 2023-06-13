@@ -63,7 +63,9 @@ getWeightsMatrix(const std::vector<int> &neuronsInLayersCount, const double *x) 
 int main() {
     int levelsAmount = 21;
     int firstLayer = 6 + levelsAmount + 1 + Palette::itemTypesNumberLimit + 4; //base + levels + 1 for used cps + itemTypes + additional params
-    std::vector<int> nodesInLayersCount = {firstLayer};
+//    std::vector<int> nodesInLayersCount = {firstLayer, 4, 2};
+    std::vector<int> nodesInLayersCount = {firstLayer, 4, 2};
+
     //todo add assert
 
     nodesInLayersCount.emplace_back(1); //i am giving 1 dimension as output dimension for simplicity in conversion
@@ -72,52 +74,45 @@ int main() {
     std::cout << "Problem dim: " << dim << std::endl;
 
 //    int dim = 10; // problem dimensions.
-    std::vector<double> x0(dim, 150);
+    std::vector<double> x0(dim, -0);
 
 
     double sigma = 0.1;
 
-    int minLength = 1;
+    int minLength = 10;
     int maxLength = 50;
-    int minCount = 10;
-    int maxCount = 20;
+    int minCount = 2;
+    int maxCount = 50;
     int itemsTypeCount = Palette::itemTypesNumberLimit;
     double difficulty = 1;
 
-    FitFunc fContainer = [minLength, maxLength, minCount, maxCount, itemsTypeCount, difficulty, nodesInLayersCount, levelsAmount](const double *x, const int N) {
+    int experimentsAmount = 50;
+
+    FitFunc fContainer = [minLength, maxLength, minCount, maxCount, itemsTypeCount, difficulty, nodesInLayersCount, levelsAmount, experimentsAmount](const double *x, const int N) {
         auto weights = getWeightsMatrix(nodesInLayersCount, x);
-        Generator generator(minLength, maxLength, minCount, maxCount, itemsTypeCount, difficulty);
-        generator.generate();
-        auto itemTypes = generator.getItems();
-        auto paletteSize = generator.getPaletteSize();
+        std::vector<double> results{};
+        for (int i = 0; i < experimentsAmount; ++i) {
+            Generator generator(minLength, maxLength, minCount, maxCount, itemsTypeCount, difficulty);
+            generator.generate();
+            auto itemTypes = generator.getItems();
+            auto paletteSize = generator.getPaletteSize();
 
-//        std::list<ItemTypeTuple> itemTypes = {
-//                {{20,  10},  1},
-//                {{10,  10},  1},
-//                {{18,  20},  1},
-//                {{30,  40},  1},
-//                {{30,  25},  1},
-//                {{20,  25},  1},
-//                {{10,  30},  1},
-//                {{13,  30},  1},
-//                {{2,   25},  1},
-//                {{7,   25},  1},
-//                {{40,  90},  1},
-//                {{150, 150}, 1},
-//                {{20,  10},  1},
-//                {{40,  5},   1},
-//                {{50,  3},   1},
-//                {{25,  8},   1},
-//        };
+            Palette palette(paletteSize.first, paletteSize.second, itemTypes, weights, levelsAmount);
 
-        Palette palette(paletteSize.first, paletteSize.second, itemTypes, weights, levelsAmount);
-        auto feval = palette.performSimulation();
-        std::cout << "Feval: " << feval * (-1) << std::endl;
+            results.emplace_back(palette.performSimulation());
+        }
+        double mean = 0.0;
+        for (auto result : results)
+            mean += result;
+        double feval = mean / double(experimentsAmount);
+
+        std::cout << "Feval: " << feval<< std::endl;
         return feval;
     };
     //int lambda = 100; // offsprings at each generation.
     CMAParameters<> cmaparams(x0, sigma);
-    cmaparams.set_mt_feval(false);
+    cmaparams.set_mt_feval(true);
+    cmaparams.set_maximize(true);
 
     //cmaparams._algo = BIPOP_CMAES;
     CMASolutions cmasols = cmaes<>(fContainer, cmaparams);

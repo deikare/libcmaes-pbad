@@ -306,7 +306,7 @@ public:
 
         if (totalArea == 0)
             return 1;
-        else return -double(totalArea) / double(itemsTotalArea);
+        else return double(totalArea) / double(itemsTotalArea);
     }
 };
 

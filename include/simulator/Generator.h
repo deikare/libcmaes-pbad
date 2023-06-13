@@ -55,22 +55,22 @@ public:
             }
         }
 
-        int palette_width = 0;
-        int palette_height = 0;
+        int paletteArea = 0;
 
-        for (int i = 0; i < new_items.size(); i++) {
-            auto item = new_items.begin();
+        for (auto item : new_items)
+            paletteArea += item.first.first * item.first.second * item.second;
+//        for(int i = 0; i < new_items.size(); i++){
+//            auto item = new_items.begin();
+//
+//            paletteArea+= item->first.first * item->first.second * item->second;
+//
+//            std::advance(item, 1);
+//        }
 
-            palette_width += item->first.first * item->second;
-            palette_height += item->first.second * item->second;
+        LengthUnit d = std::ceil(std::sqrt(double(paletteArea) / difficulty));
+        palette_size =  std::make_pair(d, d);
 
-            std::advance(item, 1);
-        }
 
-        palette_width /= difficulty;
-        palette_height /= difficulty;
-
-        palette_size = std::make_pair(palette_width, palette_height);
         items = new_items;
     }
 
