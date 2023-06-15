@@ -63,12 +63,52 @@ private:
         return std::pair<bool, LengthUnit>{bestRating >= 0, bestArea};
     }
 
+    std::pair<bool, std::vector<LengthUnit>> performInsertionStepWithSave() {
+        double bestRating = -1;
+        std::vector<LengthUnit> bestItemInsertion = {};
+
+        struct ExtendedInsertionTrialResult bestTrialResult;
+        auto cpBeg = counterPoints.begin();
+        std::list<ItemTypeTuple>::iterator bestItemTypeIter;
+
+        auto itemTypesEnd = itemTypes.end();
+        for (auto itemTypesIter = itemTypes.begin(); itemTypesIter != itemTypesEnd; itemTypesIter++) {
+            auto cpEnd = counterPoints.end();
+            for (auto cpIterator = counterPoints.begin();
+                 cpIterator != cpEnd; cpIterator++) { //TODO upgrade iterative search to bisection search
+                tryInsertionForItemWithSave(cpIterator, cpBeg, cpEnd, itemTypesIter, itemTypesIter->first.first,
+                                            itemTypesIter->first.second, bestRating,
+                                            bestTrialResult, bestItemTypeIter);
+                tryInsertionForItemWithSave(cpIterator, cpBeg, cpEnd, itemTypesIter, itemTypesIter->first.second,
+                                            itemTypesIter->first.first, bestRating,
+                                            bestTrialResult, bestItemTypeIter);
+            }
+        }
+
+        if (bestRating >= 0) {
+            //todo - check pivot
+            bestItemInsertion = {bestTrialResult.rightBorder - bestTrialResult.width,
+                                 bestTrialResult.topBorder - bestTrialResult.height,
+                                 bestTrialResult.width, bestTrialResult.height};
+            updateCounterPoints(bestTrialResult);
+            updateItemList(bestItemTypeIter);
+        }
+
+
+        return std::pair<bool, std::vector<LengthUnit>>{bestRating >= 0, bestItemInsertion};
+    }
+
     struct InsertionTrialResult {
         std::list<CounterPoint>::iterator topLeftCp;
         std::list<CounterPoint>::iterator bottomRightCp;
         LengthUnit rightBorder{};
         LengthUnit topBorder{};
         LengthUnit area{};
+    };
+
+    struct ExtendedInsertionTrialResult : InsertionTrialResult {
+        LengthUnit width{};
+        LengthUnit height{};
     };
 
     void tryInsertionForItem(const std::list<CounterPoint>::iterator &cpIterator,
@@ -131,6 +171,170 @@ private:
             trialResult.topBorder = topBorder;
             LengthUnit itemArea = itemHeight * itemWidth;
             trialResult.area = itemArea;
+
+            // TODO calculate features
+            Features features = {
+                    (float) itemWidth / (float) width,
+                    (float) itemHeight / (float) height,
+                    float(itemArea) / float(remainingArea),
+                    float(totalWastedWidth) / float(width),
+                    float(totalWastedHeight) / float(height),
+                    float(totalWastedArea) / float(remainingArea)
+            };
+
+            LengthUnit lowerBound, upperBound;
+            lowerBound = bottomRightCP->second;
+            upperBound = topBorder;
+            auto tmpIterator = std::prev(end);
+            auto lowestCpHeight = tmpIterator->second;
+            LengthUnit level = 0;
+
+            if (lowestCpHeight > 0) {
+                while (level <= lowestCpHeight) {
+                    features.emplace_back(1.0f);
+                    level += levelIncrement;
+                }
+            }
+
+            auto widthAsFloat = float(width);
+
+            if (lowerBound > 0) {
+                while (level <= lowerBound) {
+                    auto prev = std::prev(tmpIterator);
+                    while (prev != bottomRightCP && prev->second < level) {
+                        tmpIterator = prev;
+                        prev = std::prev(prev);
+                    }
+                    features.emplace_back(float(tmpIterator->first) / widthAsFloat);
+                    level += levelIncrement;
+                }
+            }
+
+            auto itemLevelValue = float(rightBorder) / widthAsFloat;
+            while (level <= upperBound) {
+                features.emplace_back(itemLevelValue);
+                level += levelIncrement;
+            }
+
+            if (topLeftCP != beg) {
+                auto firstCpHeight = beg->second;
+                tmpIterator = topLeftCP;
+                auto prev = std::prev(tmpIterator);
+
+                while (level <= firstCpHeight) {
+                    while (tmpIterator != beg && prev->second < level) {
+                        tmpIterator = prev;
+                        prev = std::prev(prev);
+                    }
+                    features.emplace_back(float(tmpIterator->first) / float(width));
+                    level += levelIncrement;
+                }
+            }
+
+            itemLevelValue = float(beg->first) / widthAsFloat;
+            while (level <= height) {
+                features.emplace_back(itemLevelValue);
+                level += levelIncrement;
+            }
+
+            features.emplace_back(
+                    float(std::distance(topLeftCP, bottomRightCP) + 1) / float(counterPoints.size())); //used cps amount
+
+            auto itemNumbersAsFloat = float(itemsNumber);
+            for (auto it = itemTypes.begin(); it != itemTypesIterator; it++) //how many items yet to place
+                features.emplace_back(float(it->second) / itemNumbersAsFloat);
+
+            features.emplace_back(float(itemTypesIterator->second - 1) / itemNumbersAsFloat);
+
+            auto itemTypesEnd = itemTypes.end();
+            for (auto it = std::next(itemTypesIterator); it != itemTypesEnd; it++)
+                features.emplace_back(float(it->second) / itemNumbersAsFloat);
+
+            for (auto i = itemTypes.size();
+                 i < itemTypesNumberLimit; i++)  //complete missing itemTypes to always same size
+                features.emplace_back(0.0f);
+
+            LengthUnit remainingHeight = height - topBorder; //how much space is wasted if same type would be inserted
+            features.emplace_back(float(remainingHeight % itemHeight) / float(remainingHeight));
+
+            LengthUnit remainingWidth = width - rightBorder;
+            features.emplace_back(float(remainingWidth % itemWidth) / float(remainingWidth));
+
+            features.emplace_back(rightBorder == width ? 1.0f : 0.0f); //whether the edges match
+            features.emplace_back(topBorder == height ? 1.0f : 0.0f);
+
+            auto rating = network.simulate(features);
+
+            if (rating[0] > bestRating) { //if improve
+                bestTrialResult = trialResult;
+                bestRating = rating[0];
+                bestItemTypeIterator = itemTypesIterator;
+            }
+        }
+    }
+
+    void tryInsertionForItemWithSave(const std::list<CounterPoint>::iterator &cpIterator,
+                                     const std::list<CounterPoint>::iterator &beg,
+                                     const std::list<CounterPoint>::iterator &end,
+                                     const std::list<ItemTypeTuple>::iterator &itemTypesIterator,
+                                     const LengthUnit itemWidth, const LengthUnit itemHeight, double &bestRating,
+                                     Palette::ExtendedInsertionTrialResult &bestTrialResult,
+                                     std::list<ItemTypeTuple>::iterator &bestItemTypeIterator) {
+        std::pair<bool, bool> result = {true, true};
+
+        LengthUnit topBorder = cpIterator->second + itemHeight;
+        LengthUnit rightBorder = cpIterator->first + itemWidth;
+
+        if (rightBorder > width)
+            result.first = false;
+
+        if (topBorder > height)
+            result.second = false;
+        else if (result.first) { //item is legal to place
+            ExtendedInsertionTrialResult trialResult;
+
+            LengthUnit totalWastedWidth = 0;
+            LengthUnit totalWastedHeight = 0;
+            LengthUnit totalWastedArea = 0;
+
+            auto topLeftCP = cpIterator;
+            while (topLeftCP != beg) {
+                auto prev = std::prev(topLeftCP);
+                if (prev->second > topBorder)
+                    break;
+
+                LengthUnit wastedWidth = topLeftCP->first - prev->first;
+                LengthUnit wastedHeight = topBorder - prev->second;
+                totalWastedWidth += wastedWidth;
+                totalWastedHeight += wastedHeight;
+                totalWastedArea += wastedWidth * wastedHeight;
+
+                topLeftCP = prev;
+            }
+
+            auto bottomRightCP = cpIterator;
+            while (true) {
+                auto next = std::next(bottomRightCP);
+                if (next == end || next->first > rightBorder)
+                    break;
+
+                LengthUnit wastedWidth = rightBorder - next->first;
+                LengthUnit wastedHeight = bottomRightCP->second - next->second;
+                totalWastedWidth += wastedWidth;
+                totalWastedHeight += wastedHeight;
+                totalWastedArea += wastedWidth * wastedHeight;
+
+                bottomRightCP = next;
+            }
+
+            trialResult.bottomRightCp = bottomRightCP;
+            trialResult.topLeftCp = topLeftCP;
+            trialResult.rightBorder = rightBorder;
+            trialResult.topBorder = topBorder;
+            LengthUnit itemArea = itemHeight * itemWidth;
+            trialResult.area = itemArea;
+            trialResult.width = itemWidth;
+            trialResult.height = itemHeight;
 
             // TODO calculate features
             Features features = {
@@ -307,6 +511,32 @@ public:
         if (totalArea == 0)
             return -100;
         else return double(totalArea) / double(itemsTotalArea);
+    }
+
+    double performSimulationWithSaveToFile(const std::string &filepath) {
+        LengthUnit totalArea = 0;
+        std::ofstream outputFile(filepath);
+        outputFile << width << "," << height << std::endl;
+
+        while (!itemTypes.empty() && !counterPoints.empty()) {
+            auto result = performInsertionStepWithSave();
+            if (!result.first)
+                break;
+            totalArea += result.second[2] * result.second[3];
+
+            std::string cpInsertion;
+            for (auto value: result.second)
+                cpInsertion += std::to_string(value) + ",";
+            if (!cpInsertion.empty()) {
+                cpInsertion = cpInsertion.substr(0, cpInsertion.size() - 1);
+                outputFile << cpInsertion << std::endl;
+            }
+        }
+        double result = double(totalArea) / double(itemsTotalArea);
+        outputFile << double(totalArea) / double(itemsTotalArea) << std::endl;
+
+        outputFile.close();
+        return result;
     }
 };
 
